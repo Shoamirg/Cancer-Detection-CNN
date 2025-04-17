@@ -1,0 +1,38 @@
+from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image
+import torch
+import torchvision.transforms as transforms
+import io
+from model import CancerDetector
+
+app = FastAPI()
+
+# Enable CORS for frontend communication
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for simplicity
+    allow_methods=["*"],  # Allow all HTTP methods
+    allow_headers=["*"],  # Allow all headers
+)
+
+# Load the trained model
+model = CancerDetector()
+model.load_state_dict(torch.load("backend/cancer_detector.pth", map_location=torch.device('cpu')))
+model.eval()
+
+# Image transformation to resize and normalize the input
+transform = transforms.Compose([
+    transforms.Resize((128, 128)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5], std=[0.5])
+])
+
+@app.post("/predict")
+async def predict(file: UploadFile = File(...)):
+    image = Image.open(io.BytesIO(await file.read())).convert("RGB")
+    input_tensor = transform(image).unsqueeze(0)
+    with torch.no_grad():
+        output = model(input_tensor)
+        prediction = torch.argmax(output, dim=1).item()
+    return {"prediction": "Cancerous" if prediction == 1 else "Healthy"}
